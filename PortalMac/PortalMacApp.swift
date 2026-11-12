@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.start()
         EdgeController.shared.start()
         NowPlayingController.shared.start()
+        IslandController.shared.start()
     }
 }
 

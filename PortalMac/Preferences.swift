@@ -19,6 +19,7 @@ enum Prefs {
     static let pairingCode = "pairingCode"
     static let nowPlayingHandleKey = "nowPlayingHandle"
     static let fetchLyricsKey = "fetchLyrics"
+    static let dynamicIslandKey = "dynamicIsland"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -27,6 +28,7 @@ enum Prefs {
             showOnThisMac: true,
             nowPlayingHandleKey: true,
             fetchLyricsKey: true,
+            dynamicIslandKey: true,
         ])
     }
 
@@ -44,5 +46,8 @@ enum Prefs {
     }
     static var fetchLyrics: Bool {
         UserDefaults.standard.bool(forKey: fetchLyricsKey)
+    }
+    static var dynamicIsland: Bool {
+        UserDefaults.standard.bool(forKey: dynamicIslandKey)
     }
 }

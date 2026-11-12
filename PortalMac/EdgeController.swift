@@ -75,6 +75,7 @@ final class EdgeController {
         let image = NSImage(data: data)
             ?? NSWorkspace.shared.icon(for: UTType(filenameExtension: ext) ?? .data)
 
+        IslandController.shared.flash(incoming: true, name: safeName, image: NSImage(data: data))
         model.play(.incoming, image: image) {
             do {
                 let url = try DownloadsSaver.save(data: data, name: safeName)
@@ -98,6 +99,7 @@ final class EdgeController {
             if started {
                 NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
                 model.play(.outgoing, image: thumb)
+                IslandController.shared.flash(incoming: false, name: url.lastPathComponent, image: thumb)
             } else {
                 NSSound.beep()
             }

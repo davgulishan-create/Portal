@@ -10,7 +10,11 @@ Two SwiftUI apps that talk over the local network using Network.framework and Bo
 | Send | Long-press a photo, drag it past the left 40 pt, let go | Drag a file into the right-edge send zone (or use menu ▸ Send File…) |
 | Receive | Images and videos go to Photos, other files go to Files ▸ On My iPhone ▸ Portal | Edge effect plays, image flies in, file saved to `~/Downloads` |
 
-## Now Playing (Mac)
+## Now Playing + Dynamic Island (Mac)
+
+**Dynamic Island.** While music plays, a black pill around the MacBook notch shows the cover on one side and moving bars on the other. Hover over it to see the title, progress and controls, or click the cover to go full screen. It also briefly shows files sent to or received from the iPhone. On Macs without a notch, it sits at the top centre of the screen.
+
+**Sources:** Music, Spotify, and browser tabs in Safari, Chrome, Arc, Brave, Edge and Vivaldi (YouTube, YouTube Music, SoundCloud, Spotify Web, Yandex Music, VK, Deezer…). Browsers need **“Allow JavaScript from Apple Events”** switched on once. In Chrome-based browsers it's under *View ▸ Developer*. In Safari it's under *Develop* (turn on *Settings ▸ Advanced ▸ Show features for web developers* first). Firefox isn't scriptable, so it's not supported.
 
 Touch the **left edge** of the screen and a small white tab slides out. Click it, or choose **Now Playing** in the menu, to open a full-screen player for **Music** or **Spotify**:
 - an ambient background made from the album cover, heavily blurred and slowly drifting;

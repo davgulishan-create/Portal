@@ -16,6 +16,33 @@ enum Lyrics: Equatable {
 /// Looks up lyrics on LRCLIB (https://lrclib.net), a free, open lyrics database with
 /// time-synced "LRC" lyrics. Only the song title, artist, album and duration are sent.
 enum LyricsService {
+    struct Query { let title: String; let artist: String; let album: String }
+
+    /// Browser tabs report video titles like "Artist - Song (Official Video) [4K]" and the
+    /// channel as the artist ("ArtistVEVO", "Artist - Topic"). Turn that into a clean
+    /// title/artist pair for lyrics and artwork lookups. Music/Spotify tracks pass through.
+    static func cleaned(_ track: NowPlayingTrack) -> Query {
+        guard case .browser = track.source else {
+            return Query(title: track.title, artist: track.artist, album: track.album)
+        }
+        var title = track.title.replacing(#/\s*[-–—]\s*YouTube( Music)?$/#, with: "")
+        var artist = track.artist
+        for separator in [" - ", " – ", " — "] {
+            if let range = title.range(of: separator) {
+                artist = String(title[..<range.lowerBound])
+                title = String(title[range.upperBound...])
+                break
+            }
+        }
+        title = title.replacing(#/\s*[\(\[][^\)\]]*[\)\]]/#, with: "")            // (Official Video) [4K]
+        title = title.replacing(#/(?i)\s+(ft\.?|feat\.?|featuring)\s.*$/#, with: "") // feat. Someone
+        artist = artist.replacing(#/(?i)\s*-\s*topic$/#, with: "")
+        artist = artist.replacing(#/(?i)vevo$/#, with: "")
+        return Query(title: title.trimmingCharacters(in: .whitespaces),
+                     artist: artist.trimmingCharacters(in: .whitespaces),
+                     album: track.album)
+    }
+
     private struct Record: Decodable {
         let syncedLyrics: String?
         let plainLyrics: String?

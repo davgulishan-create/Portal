@@ -171,11 +171,18 @@ private struct PlayerColumn: View {
                     }
                 }
             } else {
-                VStack(spacing: 6) {
+                VStack(spacing: 8) {
                     Text("Nothing playing").font(.title2.bold())
-                    Text("Play something in Music or Spotify")
+                    Text("Play something in Music, Spotify or a browser tab")
                         .foregroundStyle(.white.opacity(0.6))
+                    if let hint = provider.browserHint {
+                        Text("To follow music in the browser, turn on:\n\(hint)")
+                            .font(.callout)
+                            .foregroundStyle(.white.opacity(0.75))
+                            .padding(.top, 8)
+                    }
                 }
+                .multilineTextAlignment(.center)
             }
         }
         .foregroundStyle(.white)

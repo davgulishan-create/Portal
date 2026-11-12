@@ -69,6 +69,7 @@ final class NowPlayingController {
         self.window = window
 
         NowPlayingProvider.shared.start()
+        IslandController.shared.setSuppressed(true)
         window.alphaValue = 0
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -82,6 +83,7 @@ final class NowPlayingController {
         guard let window else { return }
         self.window = nil
         NowPlayingProvider.shared.stop()
+        IslandController.shared.setSuppressed(false)
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.3
             window.animator().alphaValue = 0

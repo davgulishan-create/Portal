@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.showOnThisMac) private var showOnThisMac = true
     @AppStorage(Prefs.nowPlayingHandleKey) private var nowPlayingHandle = true
     @AppStorage(Prefs.fetchLyricsKey) private var fetchLyrics = true
+    @AppStorage(Prefs.dynamicIslandKey) private var dynamicIsland = true
     @ObservedObject private var server = PortalServer.shared
 
     var body: some View {
@@ -49,13 +50,14 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Dynamic Island around the notch", isOn: $dynamicIsland)
                 Toggle("Left-edge handle", isOn: $nowPlayingHandle)
                 Toggle("Synced lyrics", isOn: $fetchLyrics)
                 Button("Open Now Playing") { NowPlayingController.shared.open() }
             } header: {
                 Text("Now Playing")
             } footer: {
-                Text("Touch the left edge of the screen and click the tab for a full-screen player for Music or Spotify. Lyrics are looked up on lrclib.net using the song title and artist.")
+                Text("Works with Music, Spotify and browser tabs (YouTube, SoundCloud, Yandex Music, VK…). For browsers, turn on “Allow JavaScript from Apple Events” in the browser's Develop menu. Lyrics are looked up on lrclib.net using the song title and artist.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
