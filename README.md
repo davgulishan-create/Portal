@@ -108,6 +108,11 @@ To keep it running without Xcode: choose **Product ▸ Show Build Folder in Find
 - iOS closes the socket when Portal goes to the background. It reconnects when you return to the app, so receiving from the Mac requires the iPhone app to be open.
 - "Waiting for iPhone…" that never changes usually means Local Network access was denied on one side, the devices are on different networks or VLANs, or the network blocks multicast.
 
+### Mac → iPhone drag only works for files in Downloads?
+The Mac app ships with the **App Sandbox** on. Sometimes macOS doesn't hand the drop to the edge window. Portal then falls back to reading the dragged file itself, and a sandboxed app is only allowed to do that inside `~/Downloads`. So if you drop a file from the Desktop or Documents and nothing happens, you have two options:
+- drag files from **Downloads**, or **Send File to iPhone…** from the menu-bar icon (that works for any file), **or**
+- remove **App Sandbox** in *PortalMac ▸ Signing & Capabilities* (trash icon). The app can then read any file you drag to the edge. That's less isolation, so decide for yourself.
+
 ### Signing troubleshooting
 - **"Signing certificate is invalid" / "Missing Private Key" / "Not in Keychain"**, and **+ ▸ Apple Development** answers "You already have a current Development certificate". This means your Apple ID's development certificate was created on another Mac or its private key was lost. A free account can't revoke it.
   - **Mac target:** set **Team** to *None* and **Signing Certificate** to *Sign to Run Locally*. That's enough to run it on your own Mac.
