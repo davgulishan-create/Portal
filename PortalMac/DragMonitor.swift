@@ -11,6 +11,8 @@ import QuartzCore
 final class DragMonitor {
     var onActiveChanged: ((Bool) -> Void)?
     var onMove: ((NSPoint) -> Void)?
+    /// Button released while a file drag was active (cursor position at release).
+    var onRelease: ((NSPoint) -> Void)?
 
     private(set) var isActive = false
     private var monitors: [Any] = []
@@ -91,6 +93,7 @@ final class DragMonitor {
         baselineChangeCount = dragPasteboard.changeCount
         setFastPolling(false)
         if isActive {
+            onRelease?(NSEvent.mouseLocation)
             // Keep the drop target alive a moment so performDragOperation can run.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 MainActor.assumeIsolated {

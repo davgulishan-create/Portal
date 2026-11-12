@@ -19,6 +19,8 @@ final class EdgeController {
     private let haptics = EdgeHaptics()
     private var observers: [NSObjectProtocol] = []
     private var currentScreen: NSScreen?
+    /// Set when DropZoneView receives the drop, so the release fallback doesn't send twice.
+    private var dropHandled = false
 
     private init() {}
 
@@ -31,10 +33,14 @@ final class EdgeController {
         zonePanel = EdgePanel(contentRect: .zero)
         zonePanel.contentView = dropView
         dropView.onHover = { [weak self] hovering in self?.model.dropHover = hovering }
-        dropView.onDrop = { [weak self] urls in self?.send(urls) }
+        dropView.onDrop = { [weak self] urls in
+            self?.dropHandled = true
+            self?.send(urls)
+        }
 
         dragMonitor.onActiveChanged = { [weak self] active in self?.dragStateChanged(active) }
         dragMonitor.onMove = { [weak self] point in self?.dragMoved(to: point) }
+        dragMonitor.onRelease = { [weak self] point in self?.dragReleased(at: point) }
         dragMonitor.start()
 
         let nc = NotificationCenter.default
@@ -100,7 +106,28 @@ final class EdgeController {
 
     // MARK: Drag tracking
 
+    /// Fallback for when the window server doesn't route the drop to DropZoneView:
+    /// if the button went up inside the send zone, read the dragged files from the drag pasteboard.
+    private func dragReleased(at point: NSPoint) {
+        guard let screen = currentScreen else { return }
+        let f = screen.frame
+        guard point.y >= f.minY, point.y <= f.maxY,
+              f.maxX - point.x <= max(Prefs.sendZone, 2) + 2 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.dropHandled else { return }
+                self.dropHandled = true
+                let urls = (NSPasteboard(name: .drag).readObjects(
+                    forClasses: [NSURL.self],
+                    options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+                    .filter { !$0.hasDirectoryPath }
+                if urls.isEmpty { NSSound.beep() } else { self.send(urls) }
+            }
+        }
+    }
+
     private func dragStateChanged(_ active: Bool) {
+        if active { dropHandled = false }
         zonePanel.ignoresMouseEvents = !active
         if active { zonePanel.orderFrontRegardless() }
         haptics.reset()
