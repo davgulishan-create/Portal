@@ -84,9 +84,14 @@ enum MediaRemoteBridge {
         if (d && !d.isNil()) art = ObjC.unwrap(d.base64EncodedStringWithOptions(0));
       }
       var ts = get('kMRMediaRemoteNowPlayingInfoTimestamp');
+      // Many players (Chromium-based apps and browsers) keep reporting "playing" while paused
+      // but set the playback rate to 0, so trust the rate whenever it is present.
+      var rateValue = get('kMRMediaRemoteNowPlayingInfoPlaybackRate');
       var playing = false;
-      try { playing = !!ObjC.unwrap(R.localIsPlaying); } catch (e) {
-        playing = (get('kMRMediaRemoteNowPlayingInfoPlaybackRate') || 0) > 0;
+      if (rateValue !== null) {
+        playing = rateValue > 0;
+      } else {
+        try { playing = !!ObjC.unwrap(R.localIsPlaying); } catch (e) {}
       }
       return JSON.stringify({
         title: get('kMRMediaRemoteNowPlayingInfoTitle') || '',

@@ -170,40 +170,103 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 
 // MARK: - Views
 
+/// Apple-like motion: a quick spring with a hint of bounce for the shape, and content that
+/// arrives a beat later with a blur-in, so the island "grows, then fills".
+private let islandSpring = Animation.spring(response: 0.42, dampingFraction: 0.78)
+
+private struct BlurScale: ViewModifier {
+    let blur: CGFloat
+    let scale: CGFloat
+    let opacity: Double
+    func body(content: Content) -> some View {
+        content.blur(radius: blur).scaleEffect(scale, anchor: .top).opacity(opacity)
+    }
+}
+
+private extension AnyTransition {
+    static var islandContent: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: BlurScale(blur: 10, scale: 0.9, opacity: 0),
+                                 identity: BlurScale(blur: 0, scale: 1, opacity: 1))
+                .animation(.easeOut(duration: 0.3).delay(0.1)),
+            removal: .modifier(active: BlurScale(blur: 8, scale: 0.96, opacity: 0),
+                               identity: BlurScale(blur: 0, scale: 1, opacity: 1))
+                .animation(.easeIn(duration: 0.12))
+        )
+    }
+}
+
+/// The island outline: straight top flush with the screen edge, small concave "ears" that
+/// melt into the menu bar (like the hardware notch), and continuous rounded bottom corners.
+struct NotchShape: Shape {
+    var topRadius: CGFloat
+    var bottomRadius: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(topRadius, bottomRadius) }
+        set { topRadius = newValue.first; bottomRadius = newValue.second }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let t = min(topRadius, rect.width / 4)
+        let b = max(0, min(bottomRadius, rect.height - t, (rect.width - 2 * t) / 2))
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        p.addQuadCurve(to: CGPoint(x: rect.minX + t, y: rect.minY + t),
+                       control: CGPoint(x: rect.minX + t, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.minX + t, y: rect.maxY - b))
+        p.addQuadCurve(to: CGPoint(x: rect.minX + t + b, y: rect.maxY),
+                       control: CGPoint(x: rect.minX + t, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.maxX - t - b, y: rect.maxY))
+        p.addQuadCurve(to: CGPoint(x: rect.maxX - t, y: rect.maxY - b),
+                       control: CGPoint(x: rect.maxX - t, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.maxX - t, y: rect.minY + t))
+        p.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY),
+                       control: CGPoint(x: rect.maxX - t, y: rect.minY))
+        p.closeSubpath()
+        return p
+    }
+}
+
 struct IslandView: View {
     @ObservedObject var model: IslandModel
     @ObservedObject var provider: NowPlayingProvider
 
     var body: some View {
         let size = model.size(for: provider)
-        let radius: CGFloat = model.expanded || model.event != nil ? 30 : model.notch.height * 0.45
+        let open = model.expanded || model.event != nil
+        let ear: CGFloat = open ? 12 : 7
+        let bottom: CGFloat = open ? 28 : max(9, model.notch.height * 0.42)
+        let shape = NotchShape(topRadius: ear, bottomRadius: bottom)
 
-        UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
+        shape
             .fill(.black)
-            .frame(width: size.width, height: size.height)
+            .frame(width: size.width + ear * 2, height: size.height)
             .overlay(alignment: .top) {
                 content
                     .frame(width: size.width, height: size.height, alignment: .top)
-                    .clipped()
             }
-            .shadow(color: .black.opacity(model.expanded || model.event != nil ? 0.35 : 0), radius: 18, y: 8)
+            .clipShape(shape)
+            .shadow(color: .black.opacity(open ? 0.45 : 0), radius: open ? 24 : 0, y: open ? 12 : 0)
             .opacity(size == .zero ? 0 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .animation(.spring(response: 0.42, dampingFraction: 0.8), value: size)
-            .animation(.spring(response: 0.42, dampingFraction: 0.8), value: model.event)
+            .animation(islandSpring, value: size)
+            .animation(islandSpring, value: open)
+            .animation(islandSpring, value: provider.track?.id)
             .preferredColorScheme(.dark)
     }
 
     @ViewBuilder private var content: some View {
         if let event = model.event {
             EventContent(event: event, notch: model.notch)
-                .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .top)))
+                .id(event.id)
+                .transition(.islandContent)
         } else if model.expanded, let track = provider.track {
             ExpandedContent(provider: provider, track: track, notchHeight: model.notch.height)
-                .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .top)))
+                .transition(.islandContent)
         } else if provider.track != nil {
             CollapsedContent(provider: provider, notch: model.notch)
-                .transition(.opacity)
+                .transition(.islandContent)
         }
     }
 }
@@ -214,10 +277,10 @@ private struct CollapsedContent: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            CoverView(image: provider.artwork, side: notch.height - 10, radius: 5)
+            CoverView(image: provider.artwork, side: notch.height - 12, radius: 6)
                 .frame(width: IslandModel.wing)
             Spacer(minLength: notch.width)
-            EqualizerBars(playing: provider.isPlaying, height: notch.height * 0.45)
+            EqualizerBars(playing: provider.isPlaying, height: notch.height * 0.42, color: provider.accent)
                 .frame(width: IslandModel.wing)
         }
         .frame(height: notch.height)
@@ -233,28 +296,36 @@ private struct ExpandedContent: View {
         VStack(spacing: 12) {
             HStack(spacing: 14) {
                 Button { NowPlayingController.shared.open() } label: {
-                    CoverView(image: provider.artwork, side: 62, radius: 12)
+                    CoverView(image: provider.artwork, side: 62, radius: 13)
+                        .shadow(color: provider.accent.opacity(0.35), radius: 12)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
                 .help("Open full screen")
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(track.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                    Text(track.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
                     Text(track.artist.isEmpty ? track.source.displayName : track.artist)
-                        .font(.system(size: 13)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
                 }
                 Spacer(minLength: 8)
-                EqualizerBars(playing: provider.isPlaying, height: 18)
+                EqualizerBars(playing: provider.isPlaying, height: 18, color: provider.accent)
             }
 
             if track.duration > 0 {
-                TimelineView(.periodic(from: .now, by: 0.5)) { context in
+                TimelineView(.periodic(from: .now, by: 0.25)) { context in
                     let fraction = provider.position(at: context.date) / track.duration
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.18))
-                            Capsule().fill(.white.opacity(0.85))
+                            Capsule().fill(.white.opacity(0.16))
+                            Capsule().fill(.white.opacity(0.9))
                                 .frame(width: geo.size.width * CGFloat(min(max(fraction, 0), 1)))
+                                .animation(.linear(duration: 0.25), value: fraction)
                         }
                     }
                     .frame(height: 4)
@@ -276,11 +347,21 @@ private struct ExpandedContent: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
-                .frame(width: 34, height: 30)
+                .frame(width: 36, height: 32)
                 .contentShape(Rectangle())
-                .contentTransition(.symbolEffect(.replace))
+                .contentTransition(.symbolEffect(.replace.downUp))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
+    }
+}
+
+/// Buttons shrink slightly and dim while pressed, like system controls.
+private struct PressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
@@ -318,14 +399,17 @@ private struct CoverView: View {
     let radius: CGFloat
 
     var body: some View {
-        Group {
+        ZStack {
+            Color.white.opacity(0.12)
+                .overlay(Image(systemName: "music.note")
+                    .font(.system(size: side * 0.45))
+                    .foregroundStyle(.white.opacity(0.5)))
             if let image {
-                Image(nsImage: image).resizable().scaledToFill()
-            } else {
-                Color.white.opacity(0.12)
-                    .overlay(Image(systemName: "music.note")
-                        .font(.system(size: side * 0.45))
-                        .foregroundStyle(.white.opacity(0.5)))
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity.animation(.easeInOut(duration: 0.4)))
+                    .id(ObjectIdentifier(image)) // crossfade when the cover changes
             }
         }
         .frame(width: side, height: side)
@@ -333,24 +417,52 @@ private struct CoverView: View {
     }
 }
 
-/// Four bouncing bars, like the system "now playing" indicator.
+/// Four bars in the cover's colour. They move with smooth, layered waves while playing and
+/// glide down to rest (then stop redrawing) when playback pauses.
 private struct EqualizerBars: View {
     let playing: Bool
     let height: CGFloat
+    var color: Color = .white
+
+    @State private var changedAt = Date.distantPast
+    @State private var ticking = true
+
+    private static let fade: Double = 0.5
+    private static let speeds: [(Double, Double)] = [(5.3, 8.9), (7.1, 4.3), (4.7, 9.7), (6.2, 5.6)]
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
+        TimelineView(.animation(minimumInterval: nil, paused: !ticking)) { timeline in
+            let date = timeline.date
+            let t = date.timeIntervalSinceReferenceDate
+            let amp = amplitude(at: date)
             HStack(alignment: .center, spacing: 2.5) {
                 ForEach(0..<4, id: \.self) { i in
-                    let speed = [6.1, 8.3, 5.2, 7.4][i]
-                    let level = playing ? 0.3 + 0.7 * abs(sin(t * speed + Double(i) * 1.3)) : 0.2
+                    let speed = Self.speeds[i]
+                    let wave = 0.5 + 0.3 * sin(t * speed.0 + Double(i) * 1.7) + 0.2 * sin(t * speed.1 + Double(i) * 0.6)
+                    let level = 0.2 + 0.8 * amp * min(max(wave, 0), 1)
                     Capsule()
                         .frame(width: 3, height: max(3, height * level))
                 }
             }
             .frame(height: height)
-            .foregroundStyle(.white.opacity(0.9))
+            .foregroundStyle(color)
         }
+        .onAppear { ticking = playing }
+        .onChange(of: playing) { _, isPlaying in
+            changedAt = Date()
+            ticking = true
+            if !isPlaying {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.fade + 0.1) {
+                    if !playing { ticking = false }
+                }
+            }
+        }
+    }
+
+    /// 0 = resting, 1 = fully moving; eased over `fade` seconds after play/pause.
+    private func amplitude(at date: Date) -> Double {
+        let p = min(1, max(0, date.timeIntervalSince(changedAt) / Self.fade))
+        let eased = p * p * (3 - 2 * p)
+        return playing ? eased : 1 - eased
     }
 }

@@ -83,6 +83,8 @@ final class NowPlayingProvider: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var artwork: NSImage?
     @Published private(set) var tint: Color = Color(white: 0.15)
+    /// A bright, saturated colour from the cover for small accents (island bars).
+    @Published private(set) var accent: Color = .white
     @Published private(set) var lyrics: Lyrics = .none
     /// The user declined "Portal wants to control …" for every running player.
     @Published private(set) var automationDenied = false
@@ -306,6 +308,7 @@ final class NowPlayingProvider: ObservableObject {
             withAnimation(.easeInOut(duration: 0.8)) {
                 artwork = image
                 tint = image.map { Color(nsColor: $0.averageColor) } ?? Color(white: 0.15)
+                accent = image.map { Color(nsColor: $0.averageColor.accentVersion) } ?? .white
             }
         }
     }
@@ -501,7 +504,7 @@ private struct Snapshot {
         let source = PlayerSource.system(app: info.app ?? "", bundleID: info.bundleID ?? "system")
         track = NowPlayingTrack(title: info.title ?? "", artist: info.artist ?? "", album: info.album ?? "",
                                 duration: info.duration ?? 0, source: source)
-        let isPlaying = info.playing ?? ((info.rate ?? 0) > 0)
+        let isPlaying = info.rate.map { $0 > 0 } ?? info.playing ?? false
         playing = isPlaying
         // Elapsed time is reported "as of" timestamp; advance it to now while playing.
         var pos = info.elapsed ?? 0
@@ -542,6 +545,17 @@ private struct Snapshot {
         position = num(6)
         artworkURL = d.numberOfItems >= 7 ? URL(string: str(7)) : nil
         tabURL = nil
+    }
+}
+
+extension NSColor {
+    /// Same hue, but bright and saturated enough to read on black.
+    var accentVersion: NSColor {
+        guard let c = usingColorSpace(.deviceRGB) else { return .white }
+        var h: CGFloat = 0, sat: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getHue(&h, saturation: &sat, brightness: &b, alpha: &a)
+        if sat < 0.12 { return NSColor(white: 0.92, alpha: 1) } // greyish covers → soft white
+        return NSColor(hue: h, saturation: min(max(sat, 0.55), 0.85), brightness: max(b, 0.9), alpha: 1)
     }
 }
 
