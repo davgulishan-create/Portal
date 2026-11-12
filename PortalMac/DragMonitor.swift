@@ -1,9 +1,12 @@
 import AppKit
 import QuartzCore
 
-/// Detects system-wide file drags (from Finder or any app) without Accessibility permission:
-/// a global mouse monitor notices a drag starting, and the drag pasteboard tells us it carries files.
-/// While a drag is active we poll the cursor at 60 Hz (global monitors aren't reliable mid-drag).
+/// Detects system-wide file drags (from Finder or any app) without Accessibility permission.
+///
+/// Mouse events are NOT reliably delivered to global monitors once a drag session has started,
+/// so instead we poll: while the left button is held, we watch the drag pasteboard's changeCount.
+/// When it changes and carries file URLs, a file drag is in progress. A global mouse-down monitor
+/// only records the baseline changeCount at the exact moment the button goes down.
 @MainActor
 final class DragMonitor {
     var onActiveChanged: ((Bool) -> Void)?
@@ -11,77 +14,92 @@ final class DragMonitor {
 
     private(set) var isActive = false
     private var monitors: [Any] = []
-    private var mouseDownChangeCount = 0
-    private var pollTimer: Timer?
+    private var baselineChangeCount = 0
+    private var buttonWasDown = false
+    private var timer: Timer?
+    private var fastPolling = false
     private let dragPasteboard = NSPasteboard(name: .drag)
 
     func start() {
-        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged]
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
-            MainActor.assumeIsolated { self?.handle(event) }
-        }) {
+        baselineChangeCount = dragPasteboard.changeCount
+        let recordBaseline: (NSEvent) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.baselineChangeCount = self.dragPasteboard.changeCount
+                self.buttonWasDown = true
+                self.setFastPolling(true)
+            }
+        }
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: recordBaseline) {
             monitors.append(global)
         }
-        if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
-            MainActor.assumeIsolated { self?.handle(event) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown, handler: { event in
+            recordBaseline(event)
             return event
         }) {
             monitors.append(local)
         }
+        setFastPolling(false)
     }
 
     func stop() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
-        setActive(false)
+        timer?.invalidate()
+        timer = nil
+        if isActive { isActive = false; onActiveChanged?(false) }
     }
 
-    private func handle(_ event: NSEvent) {
-        switch event.type {
-        case .leftMouseDown:
-            mouseDownChangeCount = dragPasteboard.changeCount
-        case .leftMouseDragged:
-            guard !isActive,
-                  dragPasteboard.changeCount != mouseDownChangeCount,
-                  dragPasteboard.canReadObject(forClasses: [NSURL.self],
-                                               options: [.urlReadingFileURLsOnly: true])
-            else { return }
-            setActive(true)
-        default:
-            break
-        }
-    }
-
-    private func setActive(_ active: Bool) {
-        guard active != isActive else { return }
-        isActive = active
-        onActiveChanged?(active)
-        pollTimer?.invalidate()
-        pollTimer = nil
-        guard active else { return }
-
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+    /// 60 Hz while the button is down (smooth haptics), 10 Hz otherwise (cheap safety net
+    /// in case a mouse-down was missed).
+    private func setFastPolling(_ fast: Bool) {
+        guard timer == nil || fast != fastPolling else { return }
+        fastPolling = fast
+        timer?.invalidate()
+        let t = Timer(timeInterval: fast ? 1.0 / 60.0 : 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         }
-        RunLoop.main.add(pollTimer!, forMode: .common) // keep firing during event tracking
+        RunLoop.main.add(t, forMode: .common) // keep firing during event tracking / drag loops
+        timer = t
     }
 
     private func poll() {
-        if NSEvent.pressedMouseButtons & 1 == 0 {
-            // Mouse released: keep the drop target alive a moment so performDragOperation can run.
-            mouseDownChangeCount = dragPasteboard.changeCount
-            pollTimer?.invalidate()
-            pollTimer = nil
+        let buttonDown = NSEvent.pressedMouseButtons & 1 != 0
+
+        if buttonDown {
+            if !buttonWasDown {
+                // Missed the mouse-down event: take the baseline now.
+                buttonWasDown = true
+                baselineChangeCount = dragPasteboard.changeCount
+                setFastPolling(true)
+                return
+            }
+            if !isActive,
+               dragPasteboard.changeCount != baselineChangeCount,
+               dragPasteboard.canReadObject(forClasses: [NSURL.self],
+                                            options: [.urlReadingFileURLsOnly: true]) {
+                isActive = true
+                onActiveChanged?(true)
+            }
+            if isActive { onMove?(NSEvent.mouseLocation) }
+            return
+        }
+
+        // Button is up.
+        guard buttonWasDown else { return }
+        buttonWasDown = false
+        baselineChangeCount = dragPasteboard.changeCount
+        setFastPolling(false)
+        if isActive {
+            // Keep the drop target alive a moment so performDragOperation can run.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, self.isActive, self.pollTimer == nil else { return }
+                    guard let self, self.isActive, !self.buttonWasDown else { return }
                     self.isActive = false
                     self.onActiveChanged?(false)
                 }
             }
-            return
         }
-        onMove?(NSEvent.mouseLocation)
     }
 }
 
