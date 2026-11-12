@@ -336,15 +336,7 @@ final class NowPlayingProvider: ObservableObject {
             if bundleID == PlayerSource.music.bundleID || bundleID == PlayerSource.spotify.bundleID {
                 script = "tell application id \"\(bundleID)\" to \(verb)"
             } else {
-                systemQueue.async {
-                    if verb == "playpause" { MediaRemoteBridge.send(.togglePlayPause) }
-                    else if verb == "next track" { MediaRemoteBridge.send(.nextTrack) }
-                    else if verb == "previous track" { MediaRemoteBridge.send(.previousTrack) }
-                    else if verb.hasPrefix("set player position to "),
-                            let seconds = Double(verb.dropFirst("set player position to ".count)) {
-                        MediaRemoteBridge.seek(to: seconds)
-                    }
-                }
+                sendToSystemPlayer(bundleID: bundleID, verb: verb, js: js)
                 return
             }
         case .music, .spotify:
@@ -354,6 +346,70 @@ final class NowPlayingProvider: ObservableObject {
             script = Self.browserCommandScript(browser, tabURL: tabURL, js: Self.findMediaJS + js)
         }
         _ = Self.runScript(script)
+    }
+
+    /// Any other app from the system Now Playing (YouTube in a browser, Yandex Music, VK…).
+    /// 1. Media keys — work for every player, need Accessibility permission.
+    /// 2. Browsers: run the command in the tab that has the media (needs "Allow JavaScript
+    ///    from Apple Events").
+    /// 3. Last resort: MediaRemote command through osascript.
+    private func sendToSystemPlayer(bundleID: String, verb: String, js: String) {
+        let key: MediaKeys.Key? = switch verb {
+        case "playpause": .playPause
+        case "next track": .next
+        case "previous track": .previous
+        default: nil
+        }
+        let browser = Browser.all.first { $0.bundleID == bundleID }
+
+        if let key, MediaKeys.isAllowed {
+            MediaKeys.press(key)
+            return
+        }
+        if let browser {
+            // Pausing: only touch a tab that is actually playing. Playing: first tab with media.
+            let result = Self.runScript(Self.browserAnyTabCommandScript(browser, js: js, playingOnly: isPlaying))
+            if result.descriptor?.stringValue == "ok" { return }
+        }
+        if key != nil, !MediaKeys.isAllowed {
+            MediaKeys.requestPermission() // once allowed, the next press works for every player
+        }
+        systemQueue.async {
+            switch verb {
+            case "playpause": MediaRemoteBridge.send(.togglePlayPause)
+            case "next track": MediaRemoteBridge.send(.nextTrack)
+            case "previous track": MediaRemoteBridge.send(.previousTrack)
+            default:
+                if verb.hasPrefix("set player position to "),
+                   let seconds = Double(verb.dropFirst("set player position to ".count)) {
+                    MediaRemoteBridge.seek(to: seconds)
+                }
+            }
+        }
+    }
+
+    /// Runs `js` (with `m` bound to the page's media) in the first tab where it applies and
+    /// returns "ok" from AppleScript, or "" if no tab had media.
+    private nonisolated static func browserAnyTabCommandScript(_ browser: Browser, js: String, playingOnly: Bool) -> String {
+        let guardJS = playingOnly ? "if(!m||m.paused)return '';" : "if(!m)return '';"
+        let wrapped = "(function(){" + findMediaJS + guardJS + js + ";return 'ok'})()"
+        let run = browser.kind == .safari
+            ? "do JavaScript \"\(appleScriptEscaped(wrapped))\" in t"
+            : "execute t javascript \"\(appleScriptEscaped(wrapped))\""
+        return """
+        tell application id "\(browser.bundleID)"
+            repeat with w in windows
+                repeat with t in tabs of w
+                    set r to ""
+                    try
+                        set r to \(run)
+                    end try
+                    if r is "ok" then return "ok"
+                end repeat
+            end repeat
+            return ""
+        end tell
+        """
     }
 
     private nonisolated static func statusScript(for source: PlayerSource) -> String {

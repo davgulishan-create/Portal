@@ -68,6 +68,13 @@ struct SettingsView: View {
                     Button("Open Now Playing") { NowPlayingController.shared.open() }
                     Button("Preview Screensaver") { NowPlayingController.shared.open(screensaver: true) }
                 }
+                LabeledContent("Play / pause for YouTube, Yandex Music, VK…") {
+                    if MediaKeys.isAllowed {
+                        Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    } else {
+                        Button("Allow…") { MediaKeys.requestPermission() }
+                    }
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("What Portal sees right now:").font(.caption.bold())
                     ForEach(nowPlaying.diagnostics, id: \.self) { line in

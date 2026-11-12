@@ -1,3 +1,5 @@
+import AppKit
+import ApplicationServices
 import Foundation
 
 /// Reads the system-wide "Now Playing" (the one in Control Center), which every player feeds:
@@ -139,5 +141,41 @@ enum MediaRemoteBridge {
         watchdog.cancel()
         guard process.terminationStatus == 0 else { return nil }
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Media keys
+
+
+/// Presses the keyboard's ⏮ ⏯ ⏭ keys in software. macOS routes them to whatever app owns
+/// "Now Playing" — YouTube in a browser, Yandex Music, VK, Telegram… — exactly like the
+/// physical keys. Posting key events needs Accessibility permission (asked once).
+enum MediaKeys {
+    enum Key: Int32 {
+        case playPause = 16 // NX_KEYTYPE_PLAY
+        case next = 17      // NX_KEYTYPE_NEXT
+        case previous = 18  // NX_KEYTYPE_PREVIOUS
+    }
+
+    static var isAllowed: Bool { AXIsProcessTrusted() }
+
+    /// Shows the system "Portal would like to control this computer" prompt.
+    static func requestPermission() {
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+    }
+
+    static func press(_ key: Key) {
+        post(key, down: true)
+        post(key, down: false)
+    }
+
+    private static func post(_ key: Key, down: Bool) {
+        let flags = NSEvent.ModifierFlags(rawValue: down ? 0xa00 : 0xb00)
+        let data1 = Int((key.rawValue << 16) | ((down ? 0xa : 0xb) << 8))
+        let event = NSEvent.otherEvent(with: .systemDefined, location: .zero, modifierFlags: flags,
+                                       timestamp: 0, windowNumber: 0, context: nil,
+                                       subtype: 8, data1: data1, data2: -1)
+        event?.cgEvent?.post(tap: .cghidEventTap)
     }
 }
