@@ -53,6 +53,8 @@ struct Browser: Equatable {
         Browser(bundleID: "com.brave.Browser", name: "Brave", kind: .chromium),
         Browser(bundleID: "com.microsoft.edgemac", name: "Edge", kind: .chromium),
         Browser(bundleID: "com.vivaldi.Vivaldi", name: "Vivaldi", kind: .chromium),
+        Browser(bundleID: "ru.yandex.desktop.yandex-browser", name: "Yandex Browser", kind: .chromium),
+        Browser(bundleID: "com.operasoftware.Opera", name: "Opera", kind: .chromium),
     ]
 
     /// How to switch on "Allow JavaScript from Apple Events" (off by default in every browser).
@@ -352,6 +354,7 @@ final class NowPlayingProvider: ObservableObject {
         let run = browser.kind == .safari
             ? "do JavaScript \"\(appleScriptEscaped(statusJS))\" in t"
             : "execute t javascript \"\(appleScriptEscaped(statusJS))\""
+        let frontTab = browser.kind == .safari ? "current tab of w" : "active tab of w"
         return """
         tell application id "\(browser.bundleID)"
             set best to ""
@@ -369,6 +372,21 @@ final class NowPlayingProvider: ObservableObject {
                         end if
                     end if
                 end repeat
+            end repeat
+            if best is not "" then return best
+            -- Any other site: look at the visible tab of each window.
+            repeat with w in windows
+                set t to missing value
+                try
+                    set t to \(frontTab)
+                end try
+                if t is not missing value then
+                    set r to \(run)
+                    if r is not missing value and r is not "" then
+                        if r contains "\\"playing\\":true" then return r
+                        if best is "" then set best to r
+                    end if
+                end if
             end repeat
             return best
         end tell

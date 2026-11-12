@@ -208,6 +208,15 @@ private struct PlayerColumn: View {
                             .foregroundStyle(.white.opacity(0.75))
                             .padding(.top, 8)
                     }
+                    // What Portal found in each player — helps to see why nothing shows up.
+                    VStack(spacing: 2) {
+                        ForEach(provider.diagnostics, id: \.self) { line in
+                            Text(line)
+                        }
+                    }
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .padding(.top, 12)
                 }
                 .multilineTextAlignment(.center)
             }
