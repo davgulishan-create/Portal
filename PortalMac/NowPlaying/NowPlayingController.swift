@@ -1,4 +1,5 @@
 import AppKit
+import IOKit.pwr_mgt
 import SwiftUI
 
 /// Left-edge handle + full-screen Now Playing window.
@@ -17,6 +18,10 @@ final class NowPlayingController {
     private var observers: [NSObjectProtocol] = []
     private var edgeScreen: NSScreen?
     private var handleShown = false
+    private var scene: NowPlayingScene?
+    private var idleTimer: Timer?
+    private var screensaverMonitor: Any?
+    private var openedAt = Date.distantPast
 
     private let handleSize = NSSize(width: 22, height: 120)
 
@@ -51,11 +56,73 @@ final class NowPlayingController {
 
         layout()
         handlePanel.orderFrontRegardless()
+
+        // Keep track info fresh so the idle screensaver knows when music is playing.
+        NowPlayingProvider.shared.start()
+        let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkIdle() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        idleTimer = timer
+    }
+
+    // MARK: Screensaver
+
+    /// Seconds since the last keyboard / mouse / trackpad input, system-wide.
+    private var idleSeconds: Double {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+    }
+
+    private func checkIdle() {
+        guard Prefs.screensaver, window == nil,
+              NowPlayingProvider.shared.isPlaying,
+              idleSeconds >= Prefs.screensaverMinutes * 60,
+              !someoneKeepsDisplayAwake else { return }
+        open(screensaver: true)
+    }
+
+    /// True while a video player, video call or presentation asks macOS to keep the display on
+    /// (YouTube video, FaceTime, Keynote…). Music-only playback doesn't, so we only take over
+    /// the screen when nobody is watching something.
+    private var someoneKeepsDisplayAwake: Bool {
+        var status: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsStatus(&status) == kIOReturnSuccess,
+              let counts = status?.takeRetainedValue() as? [String: Int] else { return false }
+        return (counts["PreventUserIdleDisplaySleep"] ?? 0) > 0
+            || (counts["NoDisplaySleepAssertion"] ?? 0) > 0
+    }
+
+    /// While the lock-screen look is showing: moving the mouse / touching the trackpad opens
+    /// the full player (like in the video); any other key closes it.
+    private func installScreensaverMonitor() {
+        removeScreensaverMonitor()
+        screensaverMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDown, .scrollWheel, .keyDown]
+        ) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, let scene = self.scene, scene.layout == .lockScreen,
+                      Date().timeIntervalSince(self.openedAt) > 1 else { return }
+                if event.type == .keyDown, ![49, 123, 124].contains(event.keyCode) {
+                    self.close()
+                } else if event.type != .keyDown {
+                    withAnimation(.spring(response: 0.8, dampingFraction: 0.9)) { scene.layout = .player }
+                    self.removeScreensaverMonitor()
+                }
+            }
+            return event
+        }
+    }
+
+    private func removeScreensaverMonitor() {
+        if let screensaverMonitor { NSEvent.removeMonitor(screensaverMonitor) }
+        screensaverMonitor = nil
     }
 
     // MARK: Full screen
 
-    func open() {
+    /// - Parameter screensaver: start with the lock-screen look (wallpaper, big clock,
+    ///   small player widget) instead of the full player.
+    func open(screensaver: Bool = false) {
         setHandleShown(false)
         if let window { window.makeKeyAndOrderFront(nil); return }
 
@@ -63,10 +130,15 @@ final class NowPlayingController {
             ?? NSScreen.main ?? NSScreen.screens[0]
         let window = NowPlayingWindow(screen: screen)
         window.onClose = { [weak self] in self?.close() }
-        window.contentView = NSHostingView(rootView: NowPlayingView(provider: .shared) { [weak self] in
+        let wallpaper = NSWorkspace.shared.desktopImageURL(for: screen).flatMap { NSImage(contentsOf: $0) }
+        let scene = NowPlayingScene(layout: screensaver ? .lockScreen : .player, wallpaper: wallpaper)
+        self.scene = scene
+        window.contentView = NSHostingView(rootView: NowPlayingView(provider: .shared, scene: scene) { [weak self] in
             self?.close()
         })
         self.window = window
+        openedAt = Date()
+        if screensaver { installScreensaverMonitor() }
 
         NowPlayingProvider.shared.start()
         IslandController.shared.setSuppressed(true)
@@ -82,6 +154,8 @@ final class NowPlayingController {
     func close() {
         guard let window else { return }
         self.window = nil
+        scene = nil
+        removeScreensaverMonitor()
         NowPlayingProvider.shared.stop()
         IslandController.shared.setSuppressed(false)
         NSAnimationContext.runAnimationGroup({ ctx in

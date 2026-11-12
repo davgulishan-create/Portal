@@ -14,6 +14,8 @@ Two SwiftUI apps that talk over the local network using Network.framework and Bo
 
 **Dynamic Island.** While music plays, a black pill around the MacBook notch shows the cover on one side and moving bars on the other. Hover over it to see the title, progress and controls, or click the cover to go full screen. It also briefly shows files sent to or received from the iPhone. On Macs without a notch, it sits at the top centre of the screen.
 
+**Screensaver.** If music is playing and the Mac has been idle for a while (2 minutes by default), Now Playing starts as a screensaver. You first see a lock-screen look with your wallpaper, a big clock and a small player widget. Touch the trackpad and it turns into the full player with lyrics. Any other key closes it. It stays out of the way while a video, video call or presentation is keeping the display awake. Settings ▸ Now Playing shows exactly what Portal can see in each player, which helps when nothing shows up.
+
 **Sources:** Music, Spotify, and browser tabs in Safari, Chrome, Arc, Brave, Edge and Vivaldi (YouTube, YouTube Music, SoundCloud, Spotify Web, Yandex Music, VK, Deezer…). Browsers need **“Allow JavaScript from Apple Events”** switched on once. In Chrome-based browsers it's under *View ▸ Developer*. In Safari it's under *Develop* (turn on *Settings ▸ Advanced ▸ Show features for web developers* first). Firefox isn't scriptable, so it's not supported.
 
 Touch the **left edge** of the screen and a small white tab slides out. Click it, or choose **Now Playing** in the menu, to open a full-screen player for **Music** or **Spotify**:

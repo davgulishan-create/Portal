@@ -2,8 +2,21 @@ import SwiftUI
 
 /// Full-screen "now playing" mode: ambient background tinted by the album art,
 /// big clock, artwork + controls on the left, time-synced lyrics on the right.
+@MainActor
+final class NowPlayingScene: ObservableObject {
+    enum Layout { case lockScreen, player }
+    @Published var layout: Layout
+    let wallpaper: NSImage?
+
+    init(layout: Layout, wallpaper: NSImage?) {
+        self.layout = layout
+        self.wallpaper = wallpaper
+    }
+}
+
 struct NowPlayingView: View {
     @ObservedObject var provider: NowPlayingProvider
+    @ObservedObject var scene: NowPlayingScene
     var onClose: () -> Void
 
     @State private var shown = false
@@ -13,26 +26,15 @@ struct NowPlayingView: View {
         GeometryReader { geo in
             let compact = geo.size.width < 1100
             ZStack {
-                AmbientBackground(artwork: provider.artwork, tint: provider.tint)
-                    .scaleEffect(shown ? 1 : 1.08)
-
-                HStack(alignment: .center, spacing: geo.size.width * 0.06) {
-                    PlayerColumn(provider: provider, artSide: min(geo.size.height * 0.42, compact ? 300 : 400))
-                        .frame(width: min(geo.size.height * 0.42, compact ? 300 : 400))
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        ClockView()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.bottom, 12)
-                        LyricsPanel(provider: provider)
+                if scene.layout == .lockScreen {
+                    LockScreenLayout(provider: provider, wallpaper: scene.wallpaper) {
+                        withAnimation(.spring(response: 0.8, dampingFraction: 0.9)) { scene.layout = .player }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+                } else {
+                    playerLayout(geo: geo, compact: compact)
+                        .transition(.opacity.combined(with: .scale(scale: 1.04)))
                 }
-                .padding(.horizontal, geo.size.width * 0.08)
-                .padding(.top, geo.size.height * 0.08)
-                .padding(.bottom, geo.size.height * 0.06)
-                .opacity(shown ? 1 : 0)
-                .offset(y: shown ? 0 : 24)
             }
             .overlay(alignment: .topLeading) {
                 Button(action: onClose) {
@@ -55,6 +57,31 @@ struct NowPlayingView: View {
         .onAppear {
             withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { shown = true }
         }
+    }
+
+    private func playerLayout(geo: GeometryProxy, compact: Bool) -> some View {
+            ZStack {
+                AmbientBackground(artwork: provider.artwork, tint: provider.tint)
+                    .scaleEffect(shown ? 1 : 1.08)
+
+                HStack(alignment: .center, spacing: geo.size.width * 0.06) {
+                    PlayerColumn(provider: provider, artSide: min(geo.size.height * 0.42, compact ? 300 : 400))
+                        .frame(width: min(geo.size.height * 0.42, compact ? 300 : 400))
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        ClockView()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 12)
+                        LyricsPanel(provider: provider)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .padding(.horizontal, geo.size.width * 0.08)
+                .padding(.top, geo.size.height * 0.08)
+                .padding(.bottom, geo.size.height * 0.06)
+                .opacity(shown ? 1 : 0)
+                .offset(y: shown ? 0 : 24)
+            }
     }
 }
 
@@ -345,5 +372,121 @@ private struct LyricsScroller: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Lock-screen look (screensaver)
+
+/// Wallpaper, big centred clock and a small glass player widget at the bottom — the first
+/// thing you see when Now Playing starts as a screensaver. Tap the widget (or touch the
+/// trackpad) to morph into the full player with lyrics.
+private struct LockScreenLayout: View {
+    @ObservedObject var provider: NowPlayingProvider
+    let wallpaper: NSImage?
+    var expand: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                if let wallpaper {
+                    Image(nsImage: wallpaper)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                } else {
+                    AmbientBackground(artwork: provider.artwork, tint: provider.tint)
+                }
+                LinearGradient(colors: [.black.opacity(0.35), .clear, .clear, .black.opacity(0.45)],
+                               startPoint: .top, endPoint: .bottom)
+
+                VStack(spacing: 0) {
+                    LockClock()
+                        .padding(.top, geo.size.height * 0.08)
+                    Spacer()
+                    if provider.track != nil {
+                        MiniPlayerWidget(provider: provider, onTap: expand)
+                            .padding(.bottom, geo.size.height * 0.09)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
+        .animation(.spring(response: 0.6, dampingFraction: 0.85), value: provider.track != nil)
+    }
+}
+
+private struct LockClock: View {
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            VStack(spacing: 0) {
+                Text(context.date, format: .dateTime.weekday(.wide).month(.wide).day())
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.8))
+                Text(context.date, format: .dateTime.hour().minute())
+                    .font(.system(size: 150, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.9))
+                    .contentTransition(.numericText())
+            }
+            .shadow(color: .black.opacity(0.25), radius: 20, y: 6)
+        }
+    }
+}
+
+private struct MiniPlayerWidget: View {
+    @ObservedObject var provider: NowPlayingProvider
+    var onTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Group {
+                if let art = provider.artwork {
+                    Image(nsImage: art).resizable().scaledToFill()
+                } else {
+                    Color.white.opacity(0.15)
+                        .overlay(Image(systemName: "music.note").foregroundStyle(.white.opacity(0.6)))
+                }
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(provider.track?.title ?? "")
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+                Text(provider.track?.artist ?? "")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+
+            HStack(spacing: 18) {
+                button("backward.fill", 15) { provider.previous() }
+                button(provider.isPlaying ? "pause.fill" : "play.fill", 20) { provider.playPause() }
+                button("forward.fill", 15) { provider.next() }
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(14)
+        .frame(width: 420)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.3), radius: 24, y: 10)
+    }
+
+    private func button(_ symbol: String, _ size: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: size, weight: .semibold))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
     }
 }

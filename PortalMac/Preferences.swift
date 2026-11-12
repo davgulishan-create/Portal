@@ -20,6 +20,8 @@ enum Prefs {
     static let nowPlayingHandleKey = "nowPlayingHandle"
     static let fetchLyricsKey = "fetchLyrics"
     static let dynamicIslandKey = "dynamicIsland"
+    static let screensaverKey = "nowPlayingScreensaver"
+    static let screensaverMinutesKey = "nowPlayingScreensaverMinutes"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -29,6 +31,8 @@ enum Prefs {
             nowPlayingHandleKey: true,
             fetchLyricsKey: true,
             dynamicIslandKey: true,
+            screensaverKey: true,
+            screensaverMinutesKey: 2.0,
         ])
     }
 
@@ -49,5 +53,11 @@ enum Prefs {
     }
     static var dynamicIsland: Bool {
         UserDefaults.standard.bool(forKey: dynamicIslandKey)
+    }
+    static var screensaver: Bool {
+        UserDefaults.standard.bool(forKey: screensaverKey)
+    }
+    static var screensaverMinutes: Double {
+        max(0.5, UserDefaults.standard.double(forKey: screensaverMinutesKey))
     }
 }

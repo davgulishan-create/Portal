@@ -26,6 +26,11 @@ enum PlayerSource: Equatable {
         }
     }
 
+    var isBrowser: Bool {
+        if case .browser = self { return true }
+        return false
+    }
+
     var displayName: String {
         switch self {
         case .music: return "Music"
@@ -85,7 +90,9 @@ final class NowPlayingProvider: ObservableObject {
     private var watchers = 0
     private var generation = 0 // bumps on every track change to drop stale async results
     private var polling = false
-    private let queue = DispatchQueue(label: "portal.nowplaying.applescript", qos: .userInitiated)
+    /// One line per player from the last poll ("Music: playing", "Safari: JavaScript off"…).
+    /// Shown in Settings so problems can be diagnosed from a screenshot.
+    @Published private(set) var diagnostics: [String] = []
 
     // MARK: Lifecycle
 
@@ -157,38 +164,55 @@ final class NowPlayingProvider: ObservableObject {
         }
     }
 
+    /// NSAppleScript is only reliable on the main thread, so polls run here. Every script is
+    /// wrapped in a short timeout, so a hung app can't freeze Portal for long.
     private func refresh() {
-        guard !polling else { return } // previous poll still talking to a slow app
+        guard !polling else { return }
         // Only talk to players that are already running — never launch them.
         let sources = runningSources()
-        guard !sources.isEmpty else { apply(nil); browserHint = nil; return }
-        polling = true
-
-        queue.async {
-            var best: Snapshot?
-            var denied = 0
-            var hint: String?
-            for source in sources {
-                let result = Self.runScript(Self.statusScript(for: source))
-                if result.errorCode == -1743 { denied += 1; continue }
-                if case .browser(let b) = source, let message = result.errorMessage,
-                   message.localizedCaseInsensitiveContains("javascript") {
-                    hint = hint ?? b.enableJavaScriptHint
-                    continue
-                }
-                guard let desc = result.descriptor, let snap = Snapshot(desc, source: source) else { continue }
-                if snap.playing { best = snap; break } // a playing source wins
-                if best == nil { best = snap }          // otherwise remember a paused one
-            }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.polling = false
-                    self.automationDenied = denied > 0 && best == nil
-                    self.browserHint = best == nil ? hint : nil
-                    self.apply(best)
-                }
-            }
+        guard !sources.isEmpty else {
+            diagnostics = ["No Music, Spotify or supported browser is running"]
+            browserHint = nil
+            automationDenied = false
+            apply(nil)
+            return
         }
+        polling = true
+        defer { polling = false }
+
+        var best: Snapshot?
+        var denied = 0
+        var hint: String?
+        var report: [String] = []
+        for source in sources {
+            let name = source.displayName
+            let result = Self.runScript(Self.statusScript(for: source))
+            if result.errorCode == -1743 {
+                denied += 1
+                report.append("\(name): permission denied — System Settings ▸ Privacy & Security ▸ Automation ▸ Portal")
+                continue
+            }
+            if let message = result.errorMessage {
+                if case .browser(let b) = source, message.localizedCaseInsensitiveContains("javascript") {
+                    hint = hint ?? b.enableJavaScriptHint
+                    report.append("\(name): “Allow JavaScript from Apple Events” is off")
+                } else {
+                    report.append("\(name): error \(result.errorCode ?? 0) — \(message)")
+                }
+                continue
+            }
+            guard let desc = result.descriptor, let snap = Snapshot(desc, source: source) else {
+                report.append(source.isBrowser ? "\(name): no tab playing media" : "\(name): stopped")
+                continue
+            }
+            report.append("\(name): \(snap.playing ? "playing" : "paused") — \(snap.track.title)")
+            if snap.playing { best = snap; break } // a playing source wins
+            if best == nil { best = snap }          // otherwise remember a paused one
+        }
+        diagnostics = report
+        automationDenied = denied > 0 && best == nil
+        browserHint = best == nil ? hint : nil
+        apply(best)
     }
 
     private func apply(_ snap: Snapshot?) {
@@ -219,19 +243,14 @@ final class NowPlayingProvider: ObservableObject {
         Task {
             var image: NSImage?
             if track.source == .music {
-                image = await withCheckedContinuation { cont in
-                    queue.async {
-                        let result = Self.runScript("""
-                        tell application id "com.apple.Music"
-                            try
-                                return data of artwork 1 of current track
-                            end try
-                        end tell
-                        """)
-                        let data = result.descriptor?.data
-                        cont.resume(returning: data.flatMap { NSImage(data: $0) })
-                    }
-                }
+                let result = Self.runScript("""
+                tell application id "com.apple.Music"
+                    try
+                        return data of artwork 1 of current track
+                    end try
+                end tell
+                """)
+                image = result.descriptor?.data.flatMap { NSImage(data: $0) }
             }
             var url = snap.artworkURL
             if image == nil, url == nil {
@@ -273,7 +292,7 @@ final class NowPlayingProvider: ObservableObject {
             guard let tabURL else { return }
             script = Self.browserCommandScript(browser, tabURL: tabURL, js: Self.findMediaJS + js)
         }
-        queue.async { _ = Self.runScript(script) }
+        _ = Self.runScript(script)
     }
 
     private nonisolated static func statusScript(for source: PlayerSource) -> String {
@@ -386,7 +405,8 @@ final class NowPlayingProvider: ObservableObject {
     private nonisolated static func runScript(_ source: String)
         -> (descriptor: NSAppleEventDescriptor?, errorCode: Int?, errorMessage: String?) {
         var error: NSDictionary?
-        let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
+        let wrapped = "with timeout of 3 seconds\n" + source + "\nend timeout"
+        let result = NSAppleScript(source: wrapped)?.executeAndReturnError(&error)
         return (error == nil ? result : nil,
                 error?[NSAppleScript.errorNumber] as? Int,
                 error?[NSAppleScript.errorMessage] as? String)

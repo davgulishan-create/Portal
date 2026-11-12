@@ -7,6 +7,9 @@ struct SettingsView: View {
     @AppStorage(Prefs.nowPlayingHandleKey) private var nowPlayingHandle = true
     @AppStorage(Prefs.fetchLyricsKey) private var fetchLyrics = true
     @AppStorage(Prefs.dynamicIslandKey) private var dynamicIsland = true
+    @AppStorage(Prefs.screensaverKey) private var screensaver = true
+    @AppStorage(Prefs.screensaverMinutesKey) private var screensaverMinutes = 2.0
+    @ObservedObject private var nowPlaying = NowPlayingProvider.shared
     @ObservedObject private var server = PortalServer.shared
 
     var body: some View {
@@ -52,8 +55,26 @@ struct SettingsView: View {
             Section {
                 Toggle("Dynamic Island around the notch", isOn: $dynamicIsland)
                 Toggle("Left-edge handle", isOn: $nowPlayingHandle)
+                Toggle("Show as screensaver while music plays", isOn: $screensaver)
+                Picker("Start after", selection: $screensaverMinutes) {
+                    Text("1 minute idle").tag(1.0)
+                    Text("2 minutes idle").tag(2.0)
+                    Text("5 minutes idle").tag(5.0)
+                    Text("10 minutes idle").tag(10.0)
+                }
+                .disabled(!screensaver)
                 Toggle("Synced lyrics", isOn: $fetchLyrics)
-                Button("Open Now Playing") { NowPlayingController.shared.open() }
+                HStack {
+                    Button("Open Now Playing") { NowPlayingController.shared.open() }
+                    Button("Preview Screensaver") { NowPlayingController.shared.open(screensaver: true) }
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("What Portal sees right now:").font(.caption.bold())
+                    ForEach(nowPlaying.diagnostics, id: \.self) { line in
+                        Text(line).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                }
+                .foregroundStyle(.secondary)
             } header: {
                 Text("Now Playing")
             } footer: {
