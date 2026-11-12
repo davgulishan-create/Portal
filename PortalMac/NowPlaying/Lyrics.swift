@@ -22,7 +22,13 @@ enum LyricsService {
     /// channel as the artist ("ArtistVEVO", "Artist - Topic"). Turn that into a clean
     /// title/artist pair for lyrics and artwork lookups. Music/Spotify tracks pass through.
     static func cleaned(_ track: NowPlayingTrack) -> Query {
-        guard case .browser = track.source else {
+        let fromWeb: Bool
+        switch track.source {
+        case .browser: fromWeb = true
+        case .system(_, let id): fromWeb = Browser.all.contains { $0.bundleID == id }
+        default: fromWeb = false
+        }
+        guard fromWeb else {
             return Query(title: track.title, artist: track.artist, album: track.album)
         }
         var title = track.title.replacing(#/\s*[-–—]\s*YouTube( Music)?$/#, with: "")

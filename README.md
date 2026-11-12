@@ -16,6 +16,8 @@ Two SwiftUI apps that talk over the local network using Network.framework and Bo
 
 **Screensaver.** If music is playing and the Mac has been idle for a while (2 minutes by default), Now Playing starts as a screensaver. You first see a lock-screen look with your wallpaper, a big clock and a small player widget. Touch the trackpad and it turns into the full player with lyrics. Any other key closes it. It stays out of the way while a video, video call or presentation is keeping the display awake. Settings ▸ Now Playing shows exactly what Portal can see in each player, which helps when nothing shows up.
 
+**Any player.** Portal first reads macOS's own *Now Playing*, the one in Control Center, which every player feeds: the Yandex Music, VK, Telegram and YouTube Music apps, browsers, Music, Spotify… Since macOS 15.4 Apple only answers its own processes here, so Portal asks `/usr/bin/osascript` to read it. That's a workaround: it needs the Mac app to run **without App Sandbox**, and a future macOS may close it. If that happens, Portal falls back to the sources below.
+
 **Sources:** Music, Spotify, and browser tabs in Safari, Chrome, Arc, Brave, Edge and Vivaldi (YouTube, YouTube Music, SoundCloud, Spotify Web, Yandex Music, VK, Deezer…). Browsers need **“Allow JavaScript from Apple Events”** switched on once. In Chrome-based browsers it's under *View ▸ Developer*. In Safari it's under *Develop* (turn on *Settings ▸ Advanced ▸ Show features for web developers* first). Firefox isn't scriptable, so it's not supported.
 
 Touch the **left edge** of the screen and a small white tab slides out. Click it, or choose **Now Playing** in the menu, to open a full-screen player for **Music** or **Spotify**:

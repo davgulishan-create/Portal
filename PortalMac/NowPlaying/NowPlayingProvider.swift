@@ -17,12 +17,15 @@ enum PlayerSource: Equatable {
     case music
     case spotify
     case browser(Browser)
+    /// From the system-wide Now Playing (any app: Yandex Music, VK, Telegram…).
+    case system(app: String, bundleID: String)
 
     var bundleID: String {
         switch self {
         case .music: return "com.apple.Music"
         case .spotify: return "com.spotify.client"
         case .browser(let b): return b.bundleID
+        case .system(_, let id): return id
         }
     }
 
@@ -36,6 +39,7 @@ enum PlayerSource: Equatable {
         case .music: return "Music"
         case .spotify: return "Spotify"
         case .browser(let b): return b.name
+        case .system(let app, _): return app.isEmpty ? "Now Playing" : app
         }
     }
 }
@@ -168,24 +172,52 @@ final class NowPlayingProvider: ObservableObject {
 
     /// NSAppleScript is only reliable on the main thread, so polls run here. Every script is
     /// wrapped in a short timeout, so a hung app can't freeze Portal for long.
+    private let systemQueue = DispatchQueue(label: "portal.nowplaying.system", qos: .userInitiated)
+    private var systemWorks = true // flips to false if this macOS closes the workaround
+
     private func refresh() {
         guard !polling else { return }
+        polling = true
+        guard systemWorks else { refreshViaAppleScript(systemNote: nil); return }
+        systemQueue.async {
+            let result = MediaRemoteBridge.nowPlaying(withArtwork: false)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self.finishSystemRefresh(result) }
+            }
+        }
+    }
+
+    private func finishSystemRefresh(_ result: (info: MediaRemoteBridge.Info?, error: String?)) {
+        if let info = result.info {
+            polling = false
+            let snap = Snapshot(system: info)
+            diagnostics = ["System Now Playing: \(snap.track.source.displayName) — \(snap.playing ? "playing" : "paused") — \(snap.track.title)"]
+            automationDenied = false
+            browserHint = nil
+            apply(snap)
+            return
+        }
+        if let error = result.error, error.contains("unavailable") || error.contains("not found") {
+            systemWorks = false
+        }
+        refreshViaAppleScript(systemNote: "System Now Playing: " + (result.error ?? "nothing playing"))
+    }
+
+    private func refreshViaAppleScript(systemNote: String?) {
+        polling = false
         // Only talk to players that are already running — never launch them.
         let sources = runningSources()
         guard !sources.isEmpty else {
-            diagnostics = ["No Music, Spotify or supported browser is running"]
+            diagnostics = [systemNote, "No Music, Spotify or supported browser is running"].compactMap { $0 }
             browserHint = nil
             automationDenied = false
             apply(nil)
             return
         }
-        polling = true
-        defer { polling = false }
-
         var best: Snapshot?
         var denied = 0
         var hint: String?
-        var report: [String] = []
+        var report: [String] = systemNote.map { [$0] } ?? []
         for source in sources {
             let name = source.displayName
             let result = Self.runScript(Self.statusScript(for: source))
@@ -254,6 +286,14 @@ final class NowPlayingProvider: ObservableObject {
                 """)
                 image = result.descriptor?.data.flatMap { NSImage(data: $0) }
             }
+            if case .system = track.source {
+                let info = await withCheckedContinuation { cont in
+                    systemQueue.async { cont.resume(returning: MediaRemoteBridge.nowPlaying(withArtwork: true).info) }
+                }
+                if let b64 = info?.artwork, !b64.isEmpty, let data = Data(base64Encoded: b64) {
+                    image = NSImage(data: data)
+                }
+            }
             var url = snap.artworkURL
             if image == nil, url == nil {
                 let q = LyricsService.cleaned(track)
@@ -288,6 +328,22 @@ final class NowPlayingProvider: ObservableObject {
         guard let source = track?.source else { return }
         let script: String
         switch source {
+        case .system(_, let bundleID):
+            // Music and Spotify are scriptable — more reliable than MediaRemote commands.
+            if bundleID == PlayerSource.music.bundleID || bundleID == PlayerSource.spotify.bundleID {
+                script = "tell application id \"\(bundleID)\" to \(verb)"
+            } else {
+                systemQueue.async {
+                    if verb == "playpause" { MediaRemoteBridge.send(.togglePlayPause) }
+                    else if verb == "next track" { MediaRemoteBridge.send(.nextTrack) }
+                    else if verb == "previous track" { MediaRemoteBridge.send(.previousTrack) }
+                    else if verb.hasPrefix("set player position to "),
+                            let seconds = Double(verb.dropFirst("set player position to ".count)) {
+                        MediaRemoteBridge.seek(to: seconds)
+                    }
+                }
+                return
+            }
         case .music, .spotify:
             script = "tell application id \"\(source.bundleID)\" to \(verb)"
         case .browser(let browser):
@@ -438,6 +494,22 @@ private struct Snapshot {
     let position: Double
     let artworkURL: URL?
     let tabURL: String?
+
+    init(system info: MediaRemoteBridge.Info) {
+        let source = PlayerSource.system(app: info.app ?? "", bundleID: info.bundleID ?? "system")
+        track = NowPlayingTrack(title: info.title ?? "", artist: info.artist ?? "", album: info.album ?? "",
+                                duration: info.duration ?? 0, source: source)
+        let isPlaying = info.playing ?? ((info.rate ?? 0) > 0)
+        playing = isPlaying
+        // Elapsed time is reported "as of" timestamp; advance it to now while playing.
+        var pos = info.elapsed ?? 0
+        if isPlaying, let ts = info.timestamp, ts > 0 {
+            pos += max(0, Date().timeIntervalSince1970 - ts) * max(info.rate ?? 1, 0.01)
+        }
+        position = pos
+        artworkURL = nil
+        tabURL = nil
+    }
 
     init?(_ d: NSAppleEventDescriptor, source: PlayerSource) {
         if case .browser = source {
