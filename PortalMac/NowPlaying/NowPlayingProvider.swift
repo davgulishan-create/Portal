@@ -284,7 +284,7 @@ final class NowPlayingProvider: ObservableObject {
                     end try
                 end tell
                 """)
-                image = result.descriptor?.data.flatMap { NSImage(data: $0) }
+                if let data = result.descriptor?.data { image = NSImage(data: data) }
             }
             if case .system = track.source {
                 let info = await withCheckedContinuation { cont in
@@ -375,6 +375,8 @@ final class NowPlayingProvider: ObservableObject {
             """
         case .browser(let browser):
             return browserStatusScript(browser)
+        case .system:
+            return "" // read through MediaRemoteBridge, never via AppleScript
         }
     }
 
