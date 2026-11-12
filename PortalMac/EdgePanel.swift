@@ -36,6 +36,16 @@ final class DropZoneView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    // The window server sends mouse events — and drag-destination lookups — straight through
+    // fully transparent pixels of a non-opaque window. Paint an invisible 1% fill so the zone
+    // is actually hit-testable while a drag is in progress.
+    override var isOpaque: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(white: 0, alpha: 0.01).setFill()
+        dirtyRect.fill()
+    }
+
     private func fileURLs(_ info: NSDraggingInfo) -> [URL] {
         let urls = info.draggingPasteboard.readObjects(
             forClasses: [NSURL.self],
