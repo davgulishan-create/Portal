@@ -10,6 +10,16 @@ Two SwiftUI apps that talk over the local network using Network.framework and Bo
 | Send | Long-press a photo, drag it past the left 40 pt, let go | Drag a file into the right-edge send zone (or use menu ▸ Send File…) |
 | Receive | Images and videos go to Photos, other files go to Files ▸ On My iPhone ▸ Portal | Edge effect plays, image flies in, file saved to `~/Downloads` |
 
+## Now Playing (Mac)
+
+Touch the **left edge** of the screen and a small white tab slides out. Click it, or choose **Now Playing** in the menu, to open a full-screen player for **Music** or **Spotify**:
+- an ambient background made from the album cover, heavily blurred and slowly drifting;
+- a big clock;
+- the cover, progress bar and controls;
+- **time-synced lyrics** from [LRCLIB](https://lrclib.net). The current line is bright and the others are dimmed and blurred. Click a line to jump to it.
+
+Esc closes it, Space plays or pauses, and ← / → skip. The first time you open it, macOS asks to let Portal control Music or Spotify (System Settings ▸ Privacy & Security ▸ Automation). Lyrics lookups send only the song title, artist, album and duration to lrclib.net, and you can turn them off in Settings.
+
 ## Layout
 
 ```
@@ -33,6 +43,7 @@ PortalMac/
   OverlayView.swift         SwiftUI overlay, curved fly-in modifier, zone indicator
   Effects.swift             Rainbow (blurred gradient band) + Portal (Canvas ring + particles)
   SettingsView.swift        Send Zone slider, effect picker, "Show on This Mac", pairing code
+  NowPlaying/               left-edge tab, full-screen player, AppleScript bridge, LRCLIB lyrics
 ```
 
 ## How it works

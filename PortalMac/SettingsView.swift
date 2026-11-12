@@ -4,6 +4,8 @@ struct SettingsView: View {
     @AppStorage(Prefs.sendZoneWidth) private var sendZone: Double = 12
     @AppStorage(Prefs.effect) private var effect: EdgeEffect = .rainbow
     @AppStorage(Prefs.showOnThisMac) private var showOnThisMac = true
+    @AppStorage(Prefs.nowPlayingHandleKey) private var nowPlayingHandle = true
+    @AppStorage(Prefs.fetchLyricsKey) private var fetchLyrics = true
     @ObservedObject private var server = PortalServer.shared
 
     var body: some View {
@@ -42,6 +44,18 @@ struct SettingsView: View {
                     .disabled(!showOnThisMac)
             } footer: {
                 Text("When “Show on This Mac” is off, files are saved to Downloads silently.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Left-edge handle", isOn: $nowPlayingHandle)
+                Toggle("Synced lyrics", isOn: $fetchLyrics)
+                Button("Open Now Playing") { NowPlayingController.shared.open() }
+            } header: {
+                Text("Now Playing")
+            } footer: {
+                Text("Touch the left edge of the screen and click the tab for a full-screen player for Music or Spotify. Lyrics are looked up on lrclib.net using the song title and artist.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

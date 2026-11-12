@@ -17,12 +17,16 @@ enum Prefs {
     static let effect = "edgeEffect"
     static let showOnThisMac = "showOnThisMac"
     static let pairingCode = "pairingCode"
+    static let nowPlayingHandleKey = "nowPlayingHandle"
+    static let fetchLyricsKey = "fetchLyrics"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             sendZoneWidth: 12.0,
             effect: EdgeEffect.rainbow.rawValue,
             showOnThisMac: true,
+            nowPlayingHandleKey: true,
+            fetchLyricsKey: true,
         ])
     }
 
@@ -34,5 +38,11 @@ enum Prefs {
     }
     static var showEffects: Bool {
         UserDefaults.standard.bool(forKey: showOnThisMac)
+    }
+    static var nowPlayingHandle: Bool {
+        UserDefaults.standard.bool(forKey: nowPlayingHandleKey)
+    }
+    static var fetchLyrics: Bool {
+        UserDefaults.standard.bool(forKey: fetchLyricsKey)
     }
 }

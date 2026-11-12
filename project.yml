@@ -60,6 +60,7 @@ targets:
         LSApplicationCategoryType: public.app-category.utilities
         NSLocalNetworkUsageDescription: Portal receives files from your iPhone over the local network.
         NSBonjourServices: [_portal._tcp]
+        NSAppleEventsUsageDescription: Portal reads the current song from Music or Spotify to show it full screen with lyrics.
     entitlements:
       path: PortalMac/PortalMac.entitlements
       properties:
@@ -68,3 +69,7 @@ targets:
         com.apple.security.network.client: true
         com.apple.security.files.downloads.read-write: true # save to ~/Downloads
         com.apple.security.files.user-selected.read-only: true # "Send File…" open panel
+        com.apple.security.automation.apple-events: true         # Now Playing (hardened runtime)
+        com.apple.security.temporary-exception.apple-events:      # Now Playing (sandbox): only these two apps
+          - com.apple.Music
+          - com.spotify.client

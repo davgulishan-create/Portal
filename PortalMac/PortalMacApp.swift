@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         server.start()
         EdgeController.shared.start()
+        NowPlayingController.shared.start()
     }
 }
 
@@ -43,6 +44,7 @@ struct MenuContent: View {
         Button("Send File to iPhone…") { pickAndSend() }
             .disabled(!server.isConnected)
         Button("Preview Effect") { EdgeController.shared.preview() }
+        Button("Now Playing") { NowPlayingController.shared.open() }
 
         Divider()
 
